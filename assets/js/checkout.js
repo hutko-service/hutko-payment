@@ -1,18 +1,33 @@
-const fg_settings = window.wc.wcSettings.getSetting( 'hutko_data', {} );
+/**
+ * WooCommerce Blocks payment method registration for hutko.
+ *
+ * @package Hutko_Payment_Gateway
+ * @since 3.5.0
+ */
 
-const fg_label = window.wp.htmlEntities.decodeEntities( fg_settings.title ) || window.wp.i18n.__( 'hutko Gateway', 'hutko' );
-const fg_Content = () => {
-    return window.wp.htmlEntities.decodeEntities( fg_settings.description || '' );
-};
-const Hutko_Payment_Block_Gateway = {
-    name: 'hutko',
-    label: fg_label,
-    content: Object( window.wp.element.createElement )( fg_Content, null ),
-    edit: Object( window.wp.element.createElement )( fg_Content, null ),
-    canMakePayment: () => true,
-    ariaLabel: fg_label,
-    supports: {
-        features: fg_settings.supports,
-    },
-};
-window.wc.wcBlocksRegistry.registerPaymentMethod( Hutko_Payment_Block_Gateway );
+( function() {
+	'use strict';
+
+	var settings = window.wc.wcSettings.getSetting( 'hutko_data', {} );
+	var label = window.wp.htmlEntities.decodeEntities( settings.title ) || window.wp.i18n.__( 'hutko Gateway', 'hutko' );
+
+	var Content = function() {
+		return window.wp.htmlEntities.decodeEntities( settings.description || '' );
+	};
+
+	var HutkoPaymentBlockGateway = {
+		name: 'hutko',
+		label: label,
+		content: Object( window.wp.element.createElement )( Content, null ),
+		edit: Object( window.wp.element.createElement )( Content, null ),
+		canMakePayment: function() {
+			return true;
+		},
+		ariaLabel: label,
+		supports: {
+			features: settings.supports
+		}
+	};
+
+	window.wc.wcBlocksRegistry.registerPaymentMethod( HutkoPaymentBlockGateway );
+} )();

@@ -1,14 +1,22 @@
 <?php
+/**
+ * Hutko Payment Gateway Uninstall.
+ *
+ * Removes all plugin data when uninstalled.
+ *
+ * @package Hutko_Payment_Gateway
+ * @since 3.0.0
+ */
+
 if ( ! defined( 'ABSPATH' ) ) {
-	exit; // Exit if accessed directly.
+	exit;
 }
 
-// if uninstall not called from WordPress exit.
 if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
-// Delete options.
-delete_option( 'oplata_woocommerce_version' );
+// Delete plugin options.
+delete_option( 'hutko_woocommerce_version' );
 delete_option( 'woocommerce_oplata_settings' );
-delete_option( 'oplata_unique' ); // <3.0.0 option
+delete_option( 'oplata_unique' );
