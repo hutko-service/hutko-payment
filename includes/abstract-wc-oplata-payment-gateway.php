@@ -86,6 +86,13 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 	public $redirect_page_id;
 
 	/**
+	 * Whether recurrent payment is enabled.
+	 *
+	 * @var bool
+	 */
+	public $recurrent_payment = false;
+
+	/**
 	 * Whether HPOS is enabled.
 	 *
 	 * @var bool
@@ -113,6 +120,11 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 		}
 
 		$this->hpos_in_use = OrderUtil::custom_orders_table_usage_is_enabled();
+
+		if ( $this->recurrent_payment ) {
+			add_action( 'add_meta_boxes', array( $this, 'addRecurrentPaymentMetaBox' ) );
+			add_action( 'wp_ajax_hutko_recurrent_charge', array( $this, 'ajaxRecurrentCharge' ) );
+		}
 	}
 
 	/**
@@ -161,6 +173,10 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 			'server_callback_url' => $this->getCallbackUrl(),
 			'reservation_data'    => $this->getReservationData( $order ),
 		);
+
+		if ( $this->recurrent_payment ) {
+			$params['required_rectoken'] = 'Y';
+		}
 
 		return apply_filters( 'wc_gateway_oplata_payment_params', $params, $order );
 	}
@@ -536,6 +552,10 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 
         switch ( $requestBody['order_status'] ) {
             case self::ORDER_APPROVED:
+                if ( ! empty( $requestBody['rectoken'] ) && $this->recurrent_payment ) {
+                    $order->update_meta_data( '_hutko_rectoken', sanitize_text_field( $requestBody['rectoken'] ) );
+                    $order->save();
+                }
                 $this->oplataPaymentComplete( $order, $requestBody['payment_id'] );
                 break;
 
@@ -614,6 +634,211 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 			} else {
 				$order->add_order_note( $order_note );
 			}
+		}
+	}
+
+	/**
+	 * Register recurrent payment meta box on order screen.
+	 *
+	 * @return void
+	 */
+	public function addRecurrentPaymentMetaBox() {
+		$screen = $this->hpos_in_use ? wc_get_page_screen_id( 'shop-order' ) : 'shop_order';
+		add_meta_box(
+			'hutko_recurrent_payment',
+			__( 'Hutko Manual Charge', 'oplata-woocommerce-payment-gateway' ),
+			array( $this, 'renderRecurrentPaymentMetaBox' ),
+			$screen,
+			'side',
+			'default'
+		);
+	}
+
+	/**
+	 * Render recurrent payment meta box content.
+	 *
+	 * @param WP_Post|WC_Order $post_or_order Post object or order (HPOS).
+	 * @return void
+	 */
+	public function renderRecurrentPaymentMetaBox( $post_or_order ) {
+		$order = $post_or_order instanceof WC_Order ? $post_or_order : wc_get_order( $post_or_order->ID );
+
+		if ( ! $order ) {
+			return;
+		}
+
+		$rectoken = $order->get_meta( '_hutko_rectoken' );
+
+		if ( empty( $rectoken ) ) {
+			echo '<p>' . esc_html__( 'No recurrent token available for this order.', 'oplata-woocommerce-payment-gateway' ) . '</p>';
+			return;
+		}
+
+		$order_id      = $order->get_id();
+		$currency      = $order->get_currency();
+		$nonce         = wp_create_nonce( 'hutko_recurrent_charge' );
+		$order_total   = (float) $order->get_total();
+		$charged_total = (float) $order->get_meta( '_hutko_recurrent_charged_total' );
+		$remaining     = max( $order_total - $charged_total, 0 );
+		?>
+		<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+			<tr>
+				<td><?php esc_html_e( 'Order total:', 'oplata-woocommerce-payment-gateway' ); ?></td>
+				<td style="text-align:right;"><?php echo esc_html( number_format( $order_total, 2, '.', '' ) . ' ' . $currency ); ?></td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Charged (recurrent):', 'oplata-woocommerce-payment-gateway' ); ?></td>
+				<td style="text-align:right;" id="hutko_charged_total"><?php echo esc_html( number_format( $charged_total, 2, '.', '' ) . ' ' . $currency ); ?></td>
+			</tr>
+			<tr>
+				<td><strong><?php esc_html_e( 'Remaining:', 'oplata-woocommerce-payment-gateway' ); ?></strong></td>
+				<td style="text-align:right;" id="hutko_remaining"><strong><?php echo esc_html( number_format( $remaining, 2, '.', '' ) . ' ' . $currency ); ?></strong></td>
+			</tr>
+		</table>
+		<p>
+			<label for="hutko_recurrent_amount"><?php esc_html_e( 'Amount', 'oplata-woocommerce-payment-gateway' ); ?> (<?php echo esc_html( $currency ); ?>):</label>
+			<input type="number" id="hutko_recurrent_amount" step="0.01" min="0.01" value="<?php echo esc_attr( number_format( $remaining > 0 ? $remaining : $order_total, 2, '.', '' ) ); ?>" style="width:100%;" />
+		</p>
+		<p>
+			<button type="button" class="button button-primary" id="hutko_recurrent_charge_btn"><?php esc_html_e( 'Charge', 'oplata-woocommerce-payment-gateway' ); ?></button>
+			<span id="hutko_recurrent_status" style="margin-left:8px;"></span>
+		</p>
+		<script>
+		(function(){
+			var btn = document.getElementById('hutko_recurrent_charge_btn');
+			var status = document.getElementById('hutko_recurrent_status');
+			var orderTotal = <?php echo esc_js( $order_total ); ?>;
+			var chargedTotal = <?php echo esc_js( $charged_total ); ?>;
+			var currency = '<?php echo esc_js( $currency ); ?>';
+
+			btn.addEventListener('click', function(){
+				var amount = parseFloat(document.getElementById('hutko_recurrent_amount').value);
+				if ( ! amount || amount <= 0 ) {
+					status.textContent = '<?php echo esc_js( __( 'Please enter a valid amount.', 'oplata-woocommerce-payment-gateway' ) ); ?>';
+					status.style.color = 'red';
+					return;
+				}
+
+				var newTotal = chargedTotal + amount;
+				if ( newTotal > orderTotal ) {
+					var msg = '<?php echo esc_js( __( 'This will charge %1$s %2$s. Total charged will be %3$s %2$s, which exceeds the order total of %4$s %2$s. Continue?', 'oplata-woocommerce-payment-gateway' ) ); ?>';
+					msg = msg.replace('%1$s', amount.toFixed(2)).replace(/%2\$s/g, currency).replace('%3$s', newTotal.toFixed(2)).replace('%4$s', orderTotal.toFixed(2));
+					if ( ! confirm(msg) ) {
+						return;
+					}
+				}
+
+				btn.disabled = true;
+				status.textContent = '<?php echo esc_js( __( 'Processing...', 'oplata-woocommerce-payment-gateway' ) ); ?>';
+				status.style.color = '';
+
+				var data = new FormData();
+				data.append('action', 'hutko_recurrent_charge');
+				data.append('_wpnonce', '<?php echo esc_js( $nonce ); ?>');
+				data.append('order_id', '<?php echo esc_js( $order_id ); ?>');
+				data.append('amount', amount);
+
+				fetch(ajaxurl, { method: 'POST', body: data })
+					.then(function(r){ return r.json(); })
+					.then(function(resp){
+						if ( resp.success ) {
+							status.textContent = resp.data.message || 'OK';
+							status.style.color = 'green';
+							chargedTotal = parseFloat(resp.data.charged_total) || (chargedTotal + amount);
+							var remaining = Math.max(orderTotal - chargedTotal, 0);
+							document.getElementById('hutko_charged_total').textContent = chargedTotal.toFixed(2) + ' ' + currency;
+							document.getElementById('hutko_remaining').innerHTML = '<strong>' + remaining.toFixed(2) + ' ' + currency + '</strong>';
+							document.getElementById('hutko_recurrent_amount').value = remaining > 0 ? remaining.toFixed(2) : orderTotal.toFixed(2);
+						} else {
+							status.textContent = resp.data.message || 'Error';
+							status.style.color = 'red';
+						}
+						btn.disabled = false;
+					})
+					.catch(function(){
+						status.textContent = 'Request failed';
+						status.style.color = 'red';
+						btn.disabled = false;
+					});
+			});
+		})();
+		</script>
+		<?php
+	}
+
+	/**
+	 * AJAX handler for recurrent charge.
+	 *
+	 * @return void
+	 */
+	public function ajaxRecurrentCharge() {
+		check_ajax_referer( 'hutko_recurrent_charge' );
+
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'oplata-woocommerce-payment-gateway' ) ) );
+		}
+
+		$order_id = isset( $_POST['order_id'] ) ? absint( $_POST['order_id'] ) : 0;
+		$amount   = isset( $_POST['amount'] ) ? floatval( $_POST['amount'] ) : 0;
+
+		if ( ! $order_id || $amount <= 0 ) {
+			wp_send_json_error( array( 'message' => __( 'Invalid order or amount.', 'oplata-woocommerce-payment-gateway' ) ) );
+		}
+
+		$order    = wc_get_order( $order_id );
+		$rectoken = $order ? $order->get_meta( '_hutko_rectoken' ) : '';
+
+		if ( ! $order || empty( $rectoken ) ) {
+			wp_send_json_error( array( 'message' => __( 'Order or recurrent token not found.', 'oplata-woocommerce-payment-gateway' ) ) );
+		}
+
+		try {
+			$result = WC_Oplata_API::recurring(
+				array(
+					'order_id'   => $this->createOplataOrderID( $order ),
+					'amount'     => (int) round( $amount * 100 ),
+					'currency'   => $order->get_currency(),
+					'rectoken'   => $rectoken,
+					'order_desc' => sprintf(
+						/* translators: %s: order number */
+						__( 'Recurrent payment for order #%s', 'oplata-woocommerce-payment-gateway' ),
+						$order->get_order_number()
+					),
+				)
+			);
+
+			if ( 'approved' === $result->order_status ) {
+				$charged_total = (float) $order->get_meta( '_hutko_recurrent_charged_total' );
+				$charged_total += $amount;
+				$order->update_meta_data( '_hutko_recurrent_charged_total', $charged_total );
+				$order->save();
+
+				/* translators: 1) amount 2) currency 3) payment ID */
+				$note = sprintf(
+					__( 'Charge successful: %1$s %2$s. Hutko ID: %3$s', 'oplata-woocommerce-payment-gateway' ),
+					$amount,
+					$order->get_currency(),
+					$result->payment_id
+				);
+				$order->add_order_note( $note );
+				wp_send_json_success( array( 'message' => $note, 'charged_total' => $charged_total ) );
+			} else {
+				/* translators: %s: order status */
+				$note = sprintf(
+					__( 'Recurrent charge failed. Status: %s', 'oplata-woocommerce-payment-gateway' ),
+					$result->order_status
+				);
+				$order->add_order_note( $note );
+				wp_send_json_error( array( 'message' => $note ) );
+			}
+		} catch ( Exception $e ) {
+			/* translators: %s: error message */
+			$note = sprintf(
+				__( 'Recurrent charge error: %s', 'oplata-woocommerce-payment-gateway' ),
+				$e->getMessage()
+			);
+			$order->add_order_note( $note );
+			wp_send_json_error( array( 'message' => $e->getMessage() ) );
 		}
 	}
 }

@@ -70,6 +70,7 @@ class WC_Gateway_Oplata_Card extends WC_Oplata_Payment_Gateway {
 		$this->completed_order_status = $this->get_option( 'completed_order_status' ) ? $this->get_option( 'completed_order_status' ) : false;
 		$this->expired_order_status   = $this->get_option( 'expired_order_status' ) ? $this->get_option( 'expired_order_status' ) : false;
 		$this->declined_order_status  = $this->get_option( 'declined_order_status' ) ? $this->get_option( 'declined_order_status' ) : false;
+		$this->recurrent_payment      = 'yes' === $this->get_option( 'recurrent_payment' );
 
 		parent::__construct();
 
@@ -177,6 +178,14 @@ class WC_Gateway_Oplata_Card extends WC_Oplata_Payment_Gateway {
 				'options'     => $this->getPaymentOrderStatuses(),
 				'default'     => 'none',
 				'description' => __( 'Order status when payment was declined', 'oplata-woocommerce-payment-gateway' ),
+				'desc_tip'    => true,
+			),
+			'recurrent_payment'      => array(
+				'title'       => __( 'Recurrent payment', 'oplata-woocommerce-payment-gateway' ),
+				'type'        => 'checkbox',
+				'label'       => __( 'Enable Recurrent Payment', 'oplata-woocommerce-payment-gateway' ),
+				'default'     => 'no',
+				'description' => __( 'Request card token for future charges', 'oplata-woocommerce-payment-gateway' ),
 				'desc_tip'    => true,
 			),
 		);
