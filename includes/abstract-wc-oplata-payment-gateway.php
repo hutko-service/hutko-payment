@@ -646,7 +646,7 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 		$screen = $this->hpos_in_use ? wc_get_page_screen_id( 'shop-order' ) : 'shop_order';
 		add_meta_box(
 			'hutko_recurrent_payment',
-			__( 'Hutko Manual Charge', 'oplata-woocommerce-payment-gateway' ),
+			__( 'hutko Manual Charge', 'oplata-woocommerce-payment-gateway' ),
 			array( $this, 'renderRecurrentPaymentMetaBox' ),
 			$screen,
 			'side',
