@@ -166,7 +166,7 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 			'order_id'            => $this->createOplataOrderID( $order ),
 			'order_desc'          => __( 'Order №: ', 'oplata-woocommerce-payment-gateway' ) . $order->get_id(),
 			'amount'              => (int) round( $order->get_total() * 100 ),
-			'currency'            => get_woocommerce_currency(),
+			'currency'            => $order->get_currency(),
 			'lang'                => $this->getLanguage(),
 			'sender_email'        => $this->getEmail( $order ),
 			'response_url'        => $this->getResponseUrl( $order ),
@@ -236,7 +236,7 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 	public function getCheckoutToken( $order ) {
 		$order_id          = $order->get_id();
 		$amount            = (int) round( $order->get_total() * 100 );
-		$currency          = get_woocommerce_currency();
+		$currency          = $order->get_currency();
 		$session_token_key = 'session_token_' . md5( $this->merchant_id . '_' . $order_id . '_' . $amount . '_' . $currency );
 		$checkout_token    = WC()->session->get( $session_token_key );
 
@@ -349,11 +349,16 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 		try {
 			/** @var WC_Order_Item_Product $order_product */
 			foreach ( $order_items_products as $order_product ) {
+				$quantity   = $order_product->get_quantity();
+				$line_total = (float) $order_product->get_total();
+				$product    = $order_product->get_product();
+				$price      = $quantity > 0 ? $line_total / $quantity : ( $product ? (float) $product->get_price() : 0 );
+
 				$reservation_data_products[] = array(
 					'id'           => $order_product->get_product_id(),
 					'name'         => $order_product->get_name(),
-					'price'        => $order_product->get_product()->get_price(),
-					'total_amount' => $order_product->get_total(),
+					'price'        => wc_format_decimal( $price, wc_get_price_decimals() ),
+					'total_amount' => wc_format_decimal( $line_total, wc_get_price_decimals() ),
 					'quantity'     => $order_product->get_quantity(),
 				);
 			}
