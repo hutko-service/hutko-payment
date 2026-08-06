@@ -1,5 +1,10 @@
 *** Hutko Payment Gateway Changelog ***
 
+2026-08-06 - version 3.7.1
+* Fixed - Removed permanent callback logging of payment data and signatures.
+* Fixed - Callback signatures are now validated before signed fields are sanitized or converted.
+* Fixed - Synchronized the plugin header and internal version number.
+
 2026-01-21 - version 3.5.0
 * Added - Support for accepting online payments via Hutko
     * Secure payment processing through Hutko API
