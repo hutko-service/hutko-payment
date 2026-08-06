@@ -468,19 +468,8 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
             throw new Exception( 'No valid callback data received' );
         }
 
-        // ДОДАЙ ЦЕ ЛОГУВАННЯ ПЕРЕД БУДЬ-ЯКОЮ ОБРОБКОЮ
-        $debug_log = [
-            'step' => 'BEFORE_SANITIZE',
-            'merchant_id_exists' => isset($requestBody['merchant_id']),
-            'merchant_id_value' => $requestBody['merchant_id'] ?? 'NOT_SET',
-            'merchant_id_type' => gettype($requestBody['merchant_id'] ?? null),
-            'all_keys' => array_keys($requestBody),
-        ];
-        file_put_contents(
-            WP_CONTENT_DIR . '/hutko-debug.log',
-            json_encode($debug_log, JSON_PRETTY_PRINT) . "\n" . str_repeat('-', 50) . "\n",
-            FILE_APPEND
-        );
+        // Validate the exact callback values before changing signed fields.
+        WC_Oplata_API::validateRequest( $requestBody );
 
         // Конвертуємо числові значення в рядки (merchant_id, payment_id, card_bin)
         // але НЕ санітизуємо складні поля типу additional_info
@@ -490,19 +479,6 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
                 $requestBody[$field] = (string) $requestBody[$field];
             }
         }
-
-        // ДОДАЙ ЦЕ ЛОГУВАННЯ ПІСЛЯ КОНВЕРТАЦІЇ
-        $debug_log2 = [
-            'step' => 'AFTER_CONVERT',
-            'merchant_id_exists' => isset($requestBody['merchant_id']),
-            'merchant_id_value' => $requestBody['merchant_id'] ?? 'NOT_SET',
-            'merchant_id_type' => gettype($requestBody['merchant_id'] ?? null),
-        ];
-        file_put_contents(
-            WP_CONTENT_DIR . '/hutko-debug.log',
-            json_encode($debug_log2, JSON_PRETTY_PRINT) . "\n" . str_repeat('-', 50) . "\n",
-            FILE_APPEND
-        );
 
         // Санітизуємо тільки прості текстові поля, НЕ чіпаємо signature та additional_info
         $fieldsToSanitize = [
@@ -516,33 +492,6 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
                 $requestBody[$field] = sanitize_text_field($requestBody[$field]);
             }
         }
-
-        // ДОДАЙ ЦЕ ЛОГУВАННЯ ПІСЛЯ САНІТИЗАЦІЇ
-        $debug_log3 = [
-            'step' => 'AFTER_SANITIZE',
-            'merchant_id_exists' => isset($requestBody['merchant_id']),
-            'merchant_id_value' => $requestBody['merchant_id'] ?? 'NOT_SET',
-            'merchant_id_type' => gettype($requestBody['merchant_id'] ?? null),
-        ];
-        file_put_contents(
-            WP_CONTENT_DIR . '/hutko-debug.log',
-            json_encode($debug_log3, JSON_PRETTY_PRINT) . "\n" . str_repeat('-', 50) . "\n",
-            FILE_APPEND
-        );
-
-        // ДОДАЙ ЦЕ ПРЯМО ПЕРЕД validateRequest
-        $debug_log4 = [
-            'step' => 'BEFORE_VALIDATE',
-            'merchant_id_in_array' => $requestBody['merchant_id'] ?? 'MISSING',
-            'full_request_body' => $requestBody,
-        ];
-        file_put_contents(
-            WP_CONTENT_DIR . '/hutko-debug.log',
-            json_encode($debug_log4, JSON_PRETTY_PRINT) . "\n" . str_repeat('=', 100) . "\n\n",
-            FILE_APPEND
-        );
-
-        WC_Oplata_API::validateRequest( $requestBody );
 
         // Ignore reverse callbacks.
         if ( ! empty( $requestBody['reversal_amount'] ) || 'reverse' === $requestBody['tran_type'] ) {
@@ -587,29 +536,6 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
                 throw new Exception( __( 'Unhandled hutko order status', 'oplata-woocommerce-payment-gateway' ) );
         }
     } catch ( Exception $e ) {
-        $log_data = [
-            'timestamp'      => date( 'Y-m-d H:i:s' ),
-            'error_message'  => $e->getMessage(),
-            'error_file'     => $e->getFile(),
-            'error_line'     => $e->getLine(),
-            'trace'          => $e->getTraceAsString(),
-            'request_method' => isset( $_SERVER['REQUEST_METHOD'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) : 'N/A',
-            'request_uri'    => isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : 'N/A',
-            'request_body'   => $requestBody ?? null,
-            'raw_input'      => $rawInput ?? file_get_contents( 'php://input' ),
-            'post_data'      => $_POST,
-            'get_data'       => $_GET,
-        ];
-
-        $log_file = WP_CONTENT_DIR . '/hutko-callback-errors.log';
-        file_put_contents(
-            $log_file,
-            json_encode( $log_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) . "\n" . str_repeat( '=', 100 ) . "\n\n",
-            FILE_APPEND
-        );
-
-        error_log( 'Hutko Callback Error: ' . $e->getMessage() . ' | Request: ' . json_encode( $requestBody ?? [] ) );
-
         if ( ! empty( $order ) ) {
             $order->update_status( 'failed', $e->getMessage() );
         }
