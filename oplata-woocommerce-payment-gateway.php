@@ -10,7 +10,7 @@
  * Requires PHP: 7.4
  * WC requires at least: 5.6
  * WC tested up to: 9.6
- * Version: 3.7.2
+ * Version: 3.7.3
  * Text Domain: oplata-woocommerce-payment-gateway
  * Domain Path: /languages
  * Tested up to: 5.8
@@ -35,7 +35,7 @@ if ( ! in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins',
 
 define( 'WC_OPLATA_DIR', dirname( __FILE__ ) );
 define( 'WC_OPLATA_BASE_FILE', __FILE__ );
-define( 'WC_OPLATA_VERSION', '3.7.2' );
+define( 'WC_OPLATA_VERSION', '3.7.3' );
 define( 'WC_OPLATA_MIN_PHP_VER', '5.6.0' );
 define( 'WC_OPLATA_MIN_WC_VER', '3.0' );
 

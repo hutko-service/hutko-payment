@@ -1,5 +1,9 @@
 *** Hutko Payment Gateway Changelog ***
 
+2026-08-19 - version 3.7.3
+* Fixed - Connect WooCommerce Subscriptions compatibility callbacks to the payment gateway hooks that are actually fired.
+* Fixed - Correctly detect a previously saved subscription token when it is the first stored token.
+
 2026-08-19 - version 3.7.2
 * Fixed - Prevent late declined or expired callbacks from changing paid orders or newer payment attempts.
 * Hardened - Validate approved callback status, transaction type, payment ID, amount, and currency.

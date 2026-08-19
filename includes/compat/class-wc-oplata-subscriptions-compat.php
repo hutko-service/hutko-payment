@@ -34,6 +34,10 @@ class WC_Oplata_Subscriptions_Compat {
 	public function __construct( $paymentGateway ) {
 		$this->paymentGateway = $paymentGateway;
 
+		add_filter( 'wc_gateway_oplata_payment_params', array( $this, 'subscriptionsPaymentParams' ), 10, 2 );
+		add_filter( 'wc_gateway_oplata_process_payment_complete', array( $this, 'subscriptionsProcessPaymentComplete' ), 10, 2 );
+
+		// Keep the legacy hook names available for third-party integrations.
 		add_filter( 'wc_gateway_hutko_payment_params', array( $this, 'subscriptionsPaymentParams' ), 10, 2 );
 		add_filter( 'wc_gateway_hutko_process_payment_complete', array( $this, 'subscriptionsProcessPaymentComplete' ), 10, 2 );
 		add_action( 'woocommerce_scheduled_subscription_payment_' . $this->paymentGateway->id, array( $this, 'scheduled_subscription_payment' ), 10, 2 );
@@ -128,7 +132,7 @@ class WC_Oplata_Subscriptions_Compat {
 	 */
 	private function isTokenAlreadySaved( $token, $user_id ) {
 		$user_tokens = get_user_meta( $user_id, self::META_NAME_OPLATA_RECTOKEN );
-		return array_search( $token, array_column( $user_tokens, 'token' ), true );
+		return false !== array_search( $token, array_column( $user_tokens, 'token' ), true );
 	}
 
 	/**
