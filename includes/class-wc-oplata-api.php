@@ -213,29 +213,28 @@ class WC_Oplata_API {
 	 * @throws Exception When validation fails.
 	 */
 	public static function validateRequest( $request_body ) {
-    if ( empty( $request_body ) ) {
-        throw new Exception( __( 'Empty request body.', 'oplata-woocommerce-payment-gateway' ) );
-    }
+		if ( empty( $request_body ) || ! is_array( $request_body ) ) {
+			throw new Exception( __( 'Empty request body.', 'oplata-woocommerce-payment-gateway' ) );
+		}
 
-    // Конвертуємо merchant_id в integer для порівняння
-    $received_merchant_id = isset($request_body['merchant_id']) ? (int) $request_body['merchant_id'] : null;
+		if ( ! isset( $request_body['merchant_id'] ) || ! is_scalar( $request_body['merchant_id'] ) || ! is_numeric( $request_body['merchant_id'] ) ) {
+			throw new Exception( __( 'Merchant data is incorrect.', 'oplata-woocommerce-payment-gateway' ) );
+		}
 
-    if ( self::$merchantID !== $received_merchant_id ) {
-        throw new Exception( 
-            sprintf(
-                __( 'Merchant data is incorrect. Expected: %1$s, Received: %2$s', 'oplata-woocommerce-payment-gateway' ),
-                self::$merchantID,
-                $request_body['merchant_id'] ?? 'NULL'
-            )
-        );
-    }
+		if ( (int) self::$merchantID !== (int) $request_body['merchant_id'] ) {
+			throw new Exception( __( 'Merchant data is incorrect.', 'oplata-woocommerce-payment-gateway' ) );
+		}
 
-    $request_signature = $request_body['signature'];
-    unset( $request_body['response_signature_string'] );
-    unset( $request_body['signature'] );
+		if ( ! isset( $request_body['signature'] ) || ! is_scalar( $request_body['signature'] ) ) {
+			throw new Exception( __( 'Signature is not valid', 'oplata-woocommerce-payment-gateway' ) );
+		}
 
-    if ( $request_signature !== self::getSignature( $request_body, self::$secretKey ) ) {
-        throw new Exception( __( 'Signature is not valid', 'oplata-woocommerce-payment-gateway' ) );
-    }
-  }
+		$request_signature = (string) $request_body['signature'];
+		unset( $request_body['response_signature_string'], $request_body['signature'] );
+
+		$expected_signature = self::getSignature( $request_body, self::$secretKey );
+		if ( ! hash_equals( $expected_signature, $request_signature ) ) {
+			throw new Exception( __( 'Signature is not valid', 'oplata-woocommerce-payment-gateway' ) );
+		}
+	}
 }

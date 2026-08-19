@@ -27,7 +27,13 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 	const ORDER_REVERSED   = 'reversed';
 	const ORDER_SEPARATOR  = '_';
 
-	const META_NAME_HUTKO_ORDER_ID = '_hutko_order_id';
+	const META_NAME_HUTKO_ORDER_ID              = '_hutko_order_id';
+	const META_NAME_HUTKO_SUCCESSFUL_ORDER_ID   = '_hutko_successful_order_id';
+	const META_NAME_HUTKO_SUCCESSFUL_PAYMENT_ID = '_hutko_successful_payment_id';
+	const META_NAME_HUTKO_PAYMENT_ATTEMPTS      = '_hutko_payment_attempts';
+	const PAYMENT_ATTEMPT_HISTORY_LIMIT         = 20;
+	const CALLBACK_LOCK_PREFIX                  = 'hutko_callback_lock_';
+	const CALLBACK_LOCK_TTL                     = 60;
 
 	/**
 	 * Test mode flag.
@@ -178,7 +184,13 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 			$params['required_rectoken'] = 'Y';
 		}
 
-		return apply_filters( 'wc_gateway_oplata_payment_params', $params, $order );
+		$params = apply_filters( 'wc_gateway_oplata_payment_params', $params, $order );
+
+		if ( is_array( $params ) ) {
+			$this->storePaymentAttempt( $order, $params );
+		}
+
+		return $params;
 	}
 
 	/**
@@ -203,6 +215,69 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 	 */
 	public function getOplataOrderID( $order ) {
 		return $order->get_meta( self::META_NAME_HUTKO_ORDER_ID );
+	}
+
+	/**
+	 * Store the signed payment parameters expected for a Hutko attempt.
+	 *
+	 * @param WC_Order $order  Order object.
+	 * @param array    $params Final payment parameters sent to Hutko.
+	 * @return void
+	 */
+	protected function storePaymentAttempt( $order, $params ) {
+		if (
+			! isset( $params['order_id'], $params['amount'], $params['currency'] ) ||
+			! is_scalar( $params['order_id'] ) ||
+			! is_scalar( $params['amount'] ) ||
+			! is_scalar( $params['currency'] )
+		) {
+			return;
+		}
+
+		$hutko_order_id = (string) $params['order_id'];
+		$amount         = (string) $params['amount'];
+		$currency       = strtoupper( trim( (string) $params['currency'] ) );
+
+		if ( '' === $hutko_order_id || '' === $currency || ! preg_match( '/^\d+$/', $amount ) ) {
+			return;
+		}
+
+		// Keep the active attempt aligned with the final, filterable request parameters.
+		$order->update_meta_data( self::META_NAME_HUTKO_ORDER_ID, $hutko_order_id );
+
+		$attempts = $order->get_meta( self::META_NAME_HUTKO_PAYMENT_ATTEMPTS );
+		$attempts = is_array( $attempts ) ? $attempts : array();
+
+		unset( $attempts[ $hutko_order_id ] );
+		$attempts[ $hutko_order_id ] = array(
+			'amount'     => (int) $amount,
+			'currency'   => $currency,
+			'created_at' => time(),
+		);
+
+		while ( count( $attempts ) > self::PAYMENT_ATTEMPT_HISTORY_LIMIT ) {
+			array_shift( $attempts );
+		}
+
+		$order->update_meta_data( self::META_NAME_HUTKO_PAYMENT_ATTEMPTS, $attempts );
+		$order->save();
+	}
+
+	/**
+	 * Get expected parameters for a specific Hutko attempt.
+	 *
+	 * @param WC_Order $order          Order object.
+	 * @param string   $hutko_order_id Full Hutko order ID.
+	 * @return array|null
+	 */
+	protected function getPaymentAttempt( $order, $hutko_order_id ) {
+		$attempts = $order->get_meta( self::META_NAME_HUTKO_PAYMENT_ATTEMPTS );
+
+		if ( ! is_array( $attempts ) || ! isset( $attempts[ $hutko_order_id ] ) || ! is_array( $attempts[ $hutko_order_id ] ) ) {
+			return null;
+		}
+
+		return $attempts[ $hutko_order_id ];
 	}
 
 	/**
@@ -257,6 +332,15 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 	 * @return void
 	 */
 	public function clearCache( $payment_params, $order_id ) {
+		if (
+			! isset( $payment_params['amount'], $payment_params['currency'] ) ||
+			! is_scalar( $payment_params['amount'] ) ||
+			! is_scalar( $payment_params['currency'] ) ||
+			! WC()->session
+		) {
+			return;
+		}
+
 		WC()->session->__unset( 'session_token_' . md5( $this->merchant_id . '_' . $order_id . '_' . $payment_params['amount'] . '_' . $payment_params['currency'] ) );
 	}
 
@@ -443,108 +527,442 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
+	 * Acquire an atomic per-order callback lock.
+	 *
+	 * @param int $order_id WooCommerce order ID.
+	 * @return array|false Lock data on success, false when another callback owns it.
+	 */
+	protected function acquireCallbackLock( $order_id ) {
+		global $wpdb;
+
+		$lock_name  = self::CALLBACK_LOCK_PREFIX . absint( $order_id );
+		$lock_value = time() . '|' . wp_generate_uuid4();
+		$created    = $wpdb->query(
+			$wpdb->prepare(
+				"INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				$lock_name,
+				$lock_value
+			)
+		);
+
+		if ( ! $created ) {
+			$created = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND CAST(SUBSTRING_INDEX(option_value, '|', 1) AS UNSIGNED) <= %d",
+					$lock_value,
+					$lock_name,
+					time() - self::CALLBACK_LOCK_TTL
+				)
+			);
+		}
+
+		if ( ! $created ) {
+			return false;
+		}
+
+		return array(
+			'name'  => $lock_name,
+			'value' => $lock_value,
+		);
+	}
+
+	/**
+	 * Release a callback lock only when it is still owned by this request.
+	 *
+	 * @param array|false $lock Lock data returned by acquireCallbackLock().
+	 * @return void
+	 */
+	protected function releaseCallbackLock( $lock ) {
+		if ( ! is_array( $lock ) || empty( $lock['name'] ) || empty( $lock['value'] ) ) {
+			return;
+		}
+
+		global $wpdb;
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+				$lock['name'],
+				$lock['value']
+			)
+		);
+	}
+
+	/**
+	 * Check whether WooCommerce already contains durable payment evidence.
+	 *
+	 * @param WC_Order $order Order object.
+	 * @return bool
+	 */
+	protected function orderHasRecordedPayment( $order ) {
+		return $order->is_paid() || (bool) $order->get_date_paid();
+	}
+
+	/**
+	 * Determine whether a negative callback must not change the order.
+	 *
+	 * @param WC_Order $order                     Order object.
+	 * @param string   $callback_hutko_order_id   Hutko order ID from callback.
+	 * @param string   $active_hutko_order_id     Most recently created Hutko order ID.
+	 * @param string   $successful_hutko_order_id Previously approved Hutko order ID.
+	 * @return string Empty string when the callback may be applied, otherwise a reason code.
+	 */
+	protected function getNegativeCallbackIgnoreReason( $order, $callback_hutko_order_id, $active_hutko_order_id, $successful_hutko_order_id ) {
+		if ( '' !== $active_hutko_order_id && ! hash_equals( $active_hutko_order_id, $callback_hutko_order_id ) ) {
+			return 'stale_attempt';
+		}
+
+		if ( $this->orderHasRecordedPayment( $order ) ) {
+			return 'payment_recorded';
+		}
+
+		if ( '' !== $successful_hutko_order_id ) {
+			return 'approved_callback_recorded';
+		}
+
+		if ( $order->get_payment_method() && $this->id !== $order->get_payment_method() ) {
+			return 'different_payment_method';
+		}
+
+		return '';
+	}
+
+	/**
+	 * Record a negative callback that was deliberately ignored.
+	 *
+	 * @param WC_Order $order                   Order object.
+	 * @param array    $request_body            Sanitized callback data.
+	 * @param string   $reason                  Ignore reason code.
+	 * @param string   $active_hutko_order_id   Most recently created Hutko order ID.
+	 * @return void
+	 */
+	protected function recordIgnoredNegativeCallback( $order, $request_body, $reason, $active_hutko_order_id ) {
+		$reason_labels = array(
+			'stale_attempt'              => __( 'the callback belongs to an older payment attempt', 'oplata-woocommerce-payment-gateway' ),
+			'payment_recorded'           => __( 'the order already contains payment evidence', 'oplata-woocommerce-payment-gateway' ),
+			'approved_callback_recorded' => __( 'an approved Hutko callback was already recorded', 'oplata-woocommerce-payment-gateway' ),
+			'different_payment_method'   => __( 'the order currently uses another payment method', 'oplata-woocommerce-payment-gateway' ),
+		);
+		$reason_label  = $reason_labels[ $reason ] ?? $reason;
+		$callback_id   = (string) $request_body['order_id'];
+		$active_id     = '' !== $active_hutko_order_id ? $active_hutko_order_id : __( 'not available', 'oplata-woocommerce-payment-gateway' );
+		$payment_id    = isset( $request_body['payment_id'] ) ? (string) $request_body['payment_id'] : '';
+		$order_note    = sprintf(
+			/* translators: 1) callback status 2) callback order ID 3) payment ID 4) reason 5) active order ID */
+			__( 'Hutko callback ignored: status %1$s, order ID %2$s, payment ID %3$s. Reason: %4$s. Active Hutko order ID: %5$s.', 'oplata-woocommerce-payment-gateway' ),
+			$request_body['order_status'],
+			$callback_id,
+			$payment_id,
+			$reason_label,
+			$active_id
+		);
+
+		$order->add_order_note( $order_note );
+
+		if ( function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->log(
+				'warning',
+				$order_note,
+				array(
+					'source'         => 'hutko-payment-gateway',
+					'order_id'       => $order->get_id(),
+					'hutko_order_id' => $callback_id,
+				)
+			);
+		}
+	}
+
+	/**
+	 * Validate that an approved callback represents the payment attempt sent to Hutko.
+	 *
+	 * @param WC_Order $order                   Order object.
+	 * @param array    $request_body            Sanitized callback data.
+	 * @param string   $callback_hutko_order_id Full Hutko order ID from callback.
+	 * @return void
+	 * @throws Exception When approved callback data is invalid or does not match the attempt.
+	 */
+	protected function validateApprovedCallback( $order, $request_body, $callback_hutko_order_id ) {
+		foreach ( array( 'payment_id', 'response_status', 'amount', 'currency' ) as $required_field ) {
+			if ( ! isset( $request_body[ $required_field ] ) || ! is_scalar( $request_body[ $required_field ] ) || '' === (string) $request_body[ $required_field ] ) {
+				throw new Exception( __( 'Required approved callback data is missing', 'oplata-woocommerce-payment-gateway' ) );
+			}
+		}
+
+		if ( 'success' !== strtolower( (string) $request_body['response_status'] ) ) {
+			throw new Exception( __( 'Hutko did not report a successful callback response', 'oplata-woocommerce-payment-gateway' ) );
+		}
+
+		if ( 'purchase' !== strtolower( (string) $request_body['tran_type'] ) ) {
+			throw new Exception( __( 'Approved Hutko callback has an unexpected transaction type', 'oplata-woocommerce-payment-gateway' ) );
+		}
+
+		$callback_amount = (string) $request_body['amount'];
+		if ( ! preg_match( '/^\d+$/', $callback_amount ) ) {
+			throw new Exception( __( 'Approved Hutko callback amount is invalid', 'oplata-woocommerce-payment-gateway' ) );
+		}
+
+		$expected_attempt = $this->getPaymentAttempt( $order, $callback_hutko_order_id );
+		if ( null === $expected_attempt ) {
+			$expected_amount   = (int) round( (float) $order->get_total() * 100 );
+			$expected_currency = strtoupper( (string) $order->get_currency() );
+			$callback_currency = strtoupper( (string) $request_body['currency'] );
+
+			if ( (int) $callback_amount !== $expected_amount || ! hash_equals( $expected_currency, $callback_currency ) ) {
+				throw new Exception( __( 'Approved Hutko callback amount or currency does not match the legacy WooCommerce order', 'oplata-woocommerce-payment-gateway' ) );
+			}
+
+			if ( function_exists( 'wc_get_logger' ) ) {
+				wc_get_logger()->warning(
+					'Approved Hutko callback matched a legacy WooCommerce order without stored attempt metadata.',
+					array(
+						'source'         => 'hutko-payment-gateway',
+						'order_id'       => $order->get_id(),
+						'hutko_order_id' => $callback_hutko_order_id,
+					)
+				);
+			}
+
+			return;
+		}
+
+		if ( ! isset( $expected_attempt['amount'], $expected_attempt['currency'] ) ) {
+			throw new Exception( __( 'Stored Hutko payment attempt data is incomplete', 'oplata-woocommerce-payment-gateway' ) );
+		}
+
+		$expected_amount   = (int) $expected_attempt['amount'];
+		$expected_currency = strtoupper( (string) $expected_attempt['currency'] );
+		$callback_currency = strtoupper( (string) $request_body['currency'] );
+
+		if ( (int) $callback_amount !== $expected_amount || ! hash_equals( $expected_currency, $callback_currency ) ) {
+			throw new Exception( __( 'Approved Hutko callback amount or currency does not match the payment attempt', 'oplata-woocommerce-payment-gateway' ) );
+		}
+	}
+
+	/**
 	 * Handle payment callback from hutko.
 	 *
 	 * @return void
 	 */
 	public function callbackHandler() {
-    try {
-        // Read raw input first - prefer JSON body over $_POST
-        $rawInput    = file_get_contents( 'php://input' );
-        $requestBody = ! empty( $rawInput ) ? json_decode( $rawInput, true ) : null;
+		$order         = null;
+		$request_body  = array();
+		$callback_lock = false;
 
-        // Fallback to $_POST if JSON decode failed or raw input was empty
-        if ( empty( $requestBody ) && ! empty( $_POST ) ) {
-            $requestBody = $_POST;
-        }
+		try {
+			$raw_input     = file_get_contents( 'php://input' );
+			$decoded_input = is_string( $raw_input ) && '' !== $raw_input ? json_decode( $raw_input, true ) : null;
+			$request_body  = is_array( $decoded_input ) ? $decoded_input : array();
 
-        // Ще один fallback на $_GET якщо потрібно
-        if ( empty( $requestBody ) && ! empty( $_GET ) ) {
-            $requestBody = $_GET;
-        }
+			if ( empty( $request_body ) && ! empty( $_POST ) ) {
+				$request_body = wp_unslash( $_POST );
+			}
 
-        // Перевірка чи є дані взагалі
-        if ( empty( $requestBody ) || ! is_array( $requestBody ) ) {
-            throw new Exception( 'No valid callback data received' );
-        }
+			if ( empty( $request_body ) || ! is_array( $request_body ) ) {
+				throw new Exception( __( 'No valid callback data received', 'oplata-woocommerce-payment-gateway' ) );
+			}
 
-        // Validate the exact callback values before changing signed fields.
-        WC_Oplata_API::validateRequest( $requestBody );
+			// Validate the signature against the original values sent by hutko.
+			WC_Oplata_API::validateRequest( $request_body );
 
-        // Конвертуємо числові значення в рядки (merchant_id, payment_id, card_bin)
-        // але НЕ санітизуємо складні поля типу additional_info
-        $fieldsToConvert = ['merchant_id', 'payment_id', 'card_bin', 'amount', 'actual_amount'];
-        foreach ($fieldsToConvert as $field) {
-            if (isset($requestBody[$field]) && is_numeric($requestBody[$field])) {
-                $requestBody[$field] = (string) $requestBody[$field];
-            }
-        }
+			foreach ( array( 'order_id', 'order_status', 'tran_type' ) as $required_field ) {
+				if ( ! isset( $request_body[ $required_field ] ) || ! is_scalar( $request_body[ $required_field ] ) ) {
+					throw new Exception( __( 'Required callback data is missing', 'oplata-woocommerce-payment-gateway' ) );
+				}
+			}
 
-        // Санітизуємо тільки прості текстові поля, НЕ чіпаємо signature та additional_info
-        $fieldsToSanitize = [
-            'order_id', 'order_status', 'tran_type', 'currency', 'sender_email',
-            'card_type', 'payment_system', 'response_status', 'masked_card',
-            'approval_code', 'rrn', 'eci', 'response_code', 'response_description'
-        ];
-        
-        foreach ($fieldsToSanitize as $field) {
-            if (isset($requestBody[$field])) {
-                $requestBody[$field] = sanitize_text_field($requestBody[$field]);
-            }
-        }
+			$fields_to_sanitize = array(
+				'order_id',
+				'order_status',
+				'tran_type',
+				'currency',
+				'sender_email',
+				'card_type',
+				'payment_system',
+				'response_status',
+				'masked_card',
+				'approval_code',
+				'rrn',
+				'eci',
+				'response_code',
+				'response_description',
+				'payment_id',
+				'card_bin',
+				'amount',
+				'actual_amount',
+				'reversal_amount',
+				'rectoken',
+			);
 
-        // Ignore reverse callbacks.
-        if ( ! empty( $requestBody['reversal_amount'] ) || 'reverse' === $requestBody['tran_type'] ) {
-            exit;
-        }
+			foreach ( $fields_to_sanitize as $field ) {
+				if ( isset( $request_body[ $field ] ) && is_scalar( $request_body[ $field ] ) ) {
+					$request_body[ $field ] = sanitize_text_field( (string) $request_body[ $field ] );
+				}
+			}
 
-        $order_id = strstr( $requestBody['order_id'], self::ORDER_SEPARATOR, true );
-        $order    = wc_get_order( $order_id );
-        $this->clearCache( $requestBody, $order_id );
+			// Ignore reverse callbacks.
+			if ( ! empty( $request_body['reversal_amount'] ) || 'reverse' === $request_body['tran_type'] ) {
+				status_header( 200 );
+				exit;
+			}
 
-        do_action( 'wc_gateway_hutko_receive_valid_callback', $requestBody, $order );
+			if ( ! preg_match( '/^(\d+)' . preg_quote( self::ORDER_SEPARATOR, '/' ) . '.+$/', $request_body['order_id'], $order_id_matches ) ) {
+				throw new Exception( __( 'Invalid WooCommerce order ID', 'oplata-woocommerce-payment-gateway' ) );
+			}
 
-        switch ( $requestBody['order_status'] ) {
-            case self::ORDER_APPROVED:
-                if ( ! empty( $requestBody['rectoken'] ) && $this->recurrent_payment ) {
-                    $order->update_meta_data( '_hutko_rectoken', sanitize_text_field( $requestBody['rectoken'] ) );
-                    $order->save();
-                }
-                $this->oplataPaymentComplete( $order, $requestBody['payment_id'] );
-                break;
+			$order_id = absint( $order_id_matches[1] );
 
-            case self::ORDER_CREATED:
-            case self::ORDER_PROCESSING:
-                // Default WC pending status is used.
-                break;
+			$order = wc_get_order( $order_id );
+			if ( ! $order ) {
+				throw new Exception( __( 'WooCommerce order was not found', 'oplata-woocommerce-payment-gateway' ) );
+			}
 
-            case self::ORDER_DECLINED:
-                $new_order_status = 'default' !== $this->declined_order_status ? $this->declined_order_status : 'failed';
-                /* translators: 1) order status 2) payment ID */
-                $order_note = sprintf( __( 'Transaction ERROR: order %1$s<br/>hutko ID: %2$s', 'oplata-woocommerce-payment-gateway' ), $requestBody['order_status'], $requestBody['payment_id'] );
-                $order->update_status( $new_order_status, $order_note );
-                break;
+			$callback_lock = $this->acquireCallbackLock( $order_id );
+			if ( ! $callback_lock ) {
+				if ( function_exists( 'wc_get_logger' ) ) {
+					wc_get_logger()->log(
+						'warning',
+						'Hutko callback deferred because another callback is processing the same order.',
+						array(
+							'source'         => 'hutko-payment-gateway',
+							'order_id'       => $order_id,
+							'hutko_order_id' => $request_body['order_id'],
+						)
+					);
+				}
 
-            case self::ORDER_EXPIRED:
-                $new_order_status = 'default' !== $this->expired_order_status ? $this->expired_order_status : 'cancelled';
-                /* translators: 1) order status 2) payment ID */
-                $order_note = sprintf( __( 'Transaction ERROR: order %1$s<br/>hutko ID: %2$s', 'oplata-woocommerce-payment-gateway' ), $requestBody['order_status'], $requestBody['payment_id'] );
-                $order->update_status( $new_order_status, $order_note );
-                break;
+				wp_send_json( array( 'error' => __( 'Another Hutko callback is currently processing this order', 'oplata-woocommerce-payment-gateway' ) ), 409 );
+			}
 
-            default:
-                throw new Exception( __( 'Unhandled hutko order status', 'oplata-woocommerce-payment-gateway' ) );
-        }
-    } catch ( Exception $e ) {
-        if ( ! empty( $order ) ) {
-            $order->update_status( 'failed', $e->getMessage() );
-        }
-        wp_send_json( [ 'error' => $e->getMessage() ], 400 );
-    }
+			$callback_hutko_order_id = (string) $request_body['order_id'];
+			if ( self::ORDER_APPROVED === $request_body['order_status'] ) {
+				$this->validateApprovedCallback( $order, $request_body, $callback_hutko_order_id );
+			}
 
-    status_header( 200 );
-    exit;
-}
+			$this->clearCache( $request_body, $order_id );
+
+			$active_hutko_order_id     = (string) $this->getOplataOrderID( $order );
+			$successful_hutko_order_id = (string) $order->get_meta( self::META_NAME_HUTKO_SUCCESSFUL_ORDER_ID );
+			$successful_payment_id     = (string) $order->get_meta( self::META_NAME_HUTKO_SUCCESSFUL_PAYMENT_ID );
+
+			switch ( $request_body['order_status'] ) {
+				case self::ORDER_APPROVED:
+					if ( empty( $request_body['payment_id'] ) || ! preg_match( '/^\d+$/', (string) $request_body['payment_id'] ) ) {
+						throw new Exception( __( 'hutko payment ID is missing', 'oplata-woocommerce-payment-gateway' ) );
+					}
+
+					$callback_payment_id = (string) $request_body['payment_id'];
+					$stored_payment_id   = (string) $order->get_transaction_id();
+					$same_payment        = ( '' !== $stored_payment_id && hash_equals( $stored_payment_id, $callback_payment_id ) ) ||
+						( '' !== $successful_payment_id && hash_equals( $successful_payment_id, $callback_payment_id ) );
+
+					if ( $this->orderHasRecordedPayment( $order ) || $same_payment || '' !== $successful_hutko_order_id ) {
+						if ( $same_payment && '' === $successful_hutko_order_id ) {
+							$order->update_meta_data( self::META_NAME_HUTKO_SUCCESSFUL_ORDER_ID, $callback_hutko_order_id );
+							$order->update_meta_data( self::META_NAME_HUTKO_SUCCESSFUL_PAYMENT_ID, $callback_payment_id );
+							$order->save();
+						}
+
+						if ( ! $same_payment ) {
+							$order_note = sprintf(
+								/* translators: 1) callback order ID 2) callback payment ID 3) stored payment ID */
+								__( 'Additional approved Hutko callback ignored: order ID %1$s, payment ID %2$s. The WooCommerce order already has payment ID %3$s. Verify that the customer was not charged twice.', 'oplata-woocommerce-payment-gateway' ),
+								$callback_hutko_order_id,
+								$callback_payment_id,
+								'' !== $stored_payment_id ? $stored_payment_id : $successful_payment_id
+							);
+							$order->add_order_note( $order_note );
+
+							if ( function_exists( 'wc_get_logger' ) ) {
+								wc_get_logger()->log(
+									'warning',
+									$order_note,
+									array(
+										'source'         => 'hutko-payment-gateway',
+										'order_id'       => $order->get_id(),
+										'hutko_order_id' => $callback_hutko_order_id,
+									)
+								);
+							}
+						}
+
+						break;
+					}
+
+					if ( ! empty( $request_body['rectoken'] ) && $this->recurrent_payment ) {
+						$order->update_meta_data( '_hutko_rectoken', $request_body['rectoken'] );
+						$order->save();
+					}
+
+					do_action( 'wc_gateway_hutko_receive_valid_callback', $request_body, $order );
+
+					$this->oplataPaymentComplete( $order, $callback_payment_id );
+
+					$stored_payment_id = (string) $order->get_transaction_id();
+					if ( ! $this->orderHasRecordedPayment( $order ) && ( '' === $stored_payment_id || ! hash_equals( $stored_payment_id, $callback_payment_id ) ) ) {
+						throw new Exception( __( 'WooCommerce did not record the approved Hutko payment', 'oplata-woocommerce-payment-gateway' ) );
+					}
+
+					$order->update_meta_data( self::META_NAME_HUTKO_SUCCESSFUL_ORDER_ID, $callback_hutko_order_id );
+					$order->update_meta_data( self::META_NAME_HUTKO_SUCCESSFUL_PAYMENT_ID, $callback_payment_id );
+					$order->save();
+					break;
+
+				case self::ORDER_CREATED:
+				case self::ORDER_PROCESSING:
+					do_action( 'wc_gateway_hutko_receive_valid_callback', $request_body, $order );
+					// Default WooCommerce pending status is used.
+					break;
+
+				case self::ORDER_DECLINED:
+				case self::ORDER_EXPIRED:
+					$ignore_reason = $this->getNegativeCallbackIgnoreReason( $order, $callback_hutko_order_id, $active_hutko_order_id, $successful_hutko_order_id );
+					if ( $ignore_reason ) {
+						$this->recordIgnoredNegativeCallback( $order, $request_body, $ignore_reason, $active_hutko_order_id );
+						break;
+					}
+
+					if ( self::ORDER_DECLINED === $request_body['order_status'] ) {
+						$new_order_status = 'default' !== $this->declined_order_status ? $this->declined_order_status : 'failed';
+					} else {
+						$new_order_status = 'default' !== $this->expired_order_status ? $this->expired_order_status : 'cancelled';
+					}
+
+					do_action( 'wc_gateway_hutko_receive_valid_callback', $request_body, $order );
+
+					/* translators: 1) order status 2) payment ID */
+					$order_note = sprintf( __( 'Transaction ERROR: order %1$s<br/>hutko ID: %2$s', 'oplata-woocommerce-payment-gateway' ), $request_body['order_status'], $request_body['payment_id'] ?? '' );
+					$order->update_status( $new_order_status, $order_note );
+					break;
+
+				default:
+					throw new Exception( __( 'Unhandled hutko order status', 'oplata-woocommerce-payment-gateway' ) );
+			}
+			$this->releaseCallbackLock( $callback_lock );
+			$callback_lock = false;
+		} catch ( Throwable $e ) {
+			$this->releaseCallbackLock( $callback_lock );
+			$callback_lock = false;
+
+			if ( function_exists( 'wc_get_logger' ) ) {
+				$log_context = array( 'source' => 'hutko-payment-gateway' );
+
+				if ( isset( $request_body['order_id'] ) && is_scalar( $request_body['order_id'] ) ) {
+					$log_context['hutko_order_id'] = sanitize_text_field( (string) $request_body['order_id'] );
+				}
+
+				if ( isset( $request_body['order_status'] ) && is_scalar( $request_body['order_status'] ) ) {
+					$log_context['hutko_order_status'] = sanitize_text_field( (string) $request_body['order_status'] );
+				}
+
+				wc_get_logger()->error( 'Hutko callback error: ' . $e->getMessage(), $log_context );
+			}
+
+			wp_send_json( array( 'error' => 'Invalid callback request.' ), 400 );
+		}
+
+		status_header( 200 );
+		exit;
+	}
 
 	/**
 	 * Complete payment process.
@@ -555,7 +973,10 @@ abstract class WC_Oplata_Payment_Gateway extends WC_Payment_Gateway {
 	 */
 	public function oplataPaymentComplete( $order, $transaction_id ) {
 		if ( ! $order->is_paid() ) {
-			$order->payment_complete( $transaction_id );
+			if ( ! $order->payment_complete( $transaction_id ) ) {
+				throw new Exception( __( 'WooCommerce could not complete the approved Hutko payment', 'oplata-woocommerce-payment-gateway' ) );
+			}
+
 			/* translators: %1$s: transaction ID */
 			$order_note = sprintf( __( 'hutko payment successful.<br/>hutko ID: %1$s<br/>', 'oplata-woocommerce-payment-gateway' ), $transaction_id );
 

@@ -1,5 +1,13 @@
 *** Hutko Payment Gateway Changelog ***
 
+2026-08-19 - version 3.7.2
+* Fixed - Prevent late declined or expired callbacks from changing paid orders or newer payment attempts.
+* Hardened - Validate approved callback status, transaction type, payment ID, amount, and currency.
+* Added - Track a bounded history of non-sensitive payment-attempt parameters for callback matching.
+* Hardened - Process callbacks sequentially per WooCommerce order and detect duplicate approved payments.
+* Fixed - Callback errors no longer change the WooCommerce order to failed.
+* Improved - Use limited WooCommerce logging without storing callback payloads, signatures, or payment tokens.
+
 2026-08-06 - version 3.7.1
 * Fixed - Removed permanent callback logging of payment data and signatures.
 * Fixed - Callback signatures are now validated before signed fields are sanitized or converted.
