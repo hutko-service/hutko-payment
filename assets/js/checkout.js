@@ -9,7 +9,7 @@
 	'use strict';
 
 	var settings = window.wc.wcSettings.getSetting( 'hutko_data', {} );
-	var label = window.wp.htmlEntities.decodeEntities( settings.title ) || window.wp.i18n.__( 'hutko Gateway', 'hutko' );
+	var label = window.wp.htmlEntities.decodeEntities( settings.title ) || window.wp.i18n.__( 'hutko Gateway', 'hutko-payment' );
 
 	var Content = function() {
 		return window.wp.htmlEntities.decodeEntities( settings.description || '' );

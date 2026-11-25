@@ -56,7 +56,7 @@ class WC_Oplata_Subscriptions_Compat {
 			$params['required_rectoken'] = 'Y';
 
 			if ( 0 === (int) $order->get_total() ) {
-				$order->add_order_note( __( 'Payment free trial verification', 'oplata-woocommerce-payment-gateway' ) );
+				$order->add_order_note( __( 'Payment free trial verification', 'hutko-payment' ) );
 				$params['verification'] = 'Y';
 				$params['amount']       = 1;
 			}
@@ -77,7 +77,7 @@ class WC_Oplata_Subscriptions_Compat {
 
 		if ( $this->has_subscription( $order ) ) {
 			if ( 0 === get_current_user_id() ) {
-				wc_add_notice( __( 'You must be logged in.', 'oplata-woocommerce-payment-gateway' ), 'error' );
+				wc_add_notice( __( 'You must be logged in.', 'hutko-payment' ), 'error' );
 				return array(
 					'result'   => 'fail',
 					'redirect' => $woocommerce->cart->get_checkout_url(),
@@ -153,17 +153,17 @@ class WC_Oplata_Subscriptions_Compat {
 			$customer_id = $renewal_order->get_customer_id();
 
 			if ( ! $customer_id ) {
-				throw new Exception( __( 'Customer not found.', 'woocommerce' ) );
+				throw new Exception( esc_html__( 'Customer not found.', 'hutko-payment' ) );
 			}
 
 			$token = get_user_meta( $customer_id, self::META_NAME_OPLATA_RECTOKEN );
 
 			if ( empty( $token ) ) {
-				throw new Exception( __( 'Token not found.', 'oplata-woocommerce-payment-gateway' ) );
+				throw new Exception( esc_html__( 'Token not found.', 'hutko-payment' ) );
 			}
 
 			if ( $token[0]['payment_id'] !== $this->paymentGateway->id ) {
-				throw new Exception( __( 'Token expired, or token not found.', 'oplata-woocommerce-payment-gateway' ) );
+				throw new Exception( esc_html__( 'Token expired, or token not found.', 'hutko-payment' ) );
 			}
 
 			$subscription_payment = WC_Oplata_API::recurring(
@@ -175,7 +175,7 @@ class WC_Oplata_Subscriptions_Compat {
 					'currency'     => get_woocommerce_currency(),
 					'order_desc'   => sprintf(
 						/* translators: %s: order number */
-						__( 'Recurring payment for: %s', 'oplata-woocommerce-payment-gateway' ),
+						__( 'Recurring payment for: %s', 'hutko-payment' ),
 						$renewal_order->get_order_number()
 					),
 				)
@@ -185,17 +185,17 @@ class WC_Oplata_Subscriptions_Compat {
 				$renewal_order->update_status( 'completed' );
 				$renewal_order->payment_complete( $subscription_payment->payment_id );
 				/* translators: %s: payment ID */
-				$renewal_order->add_order_note( sprintf( __( 'hutko subscription payment successful.<br/>hutko ID: %s', 'oplata-woocommerce-payment-gateway' ), $subscription_payment->payment_id ) );
+				$renewal_order->add_order_note( sprintf( __( 'hutko subscription payment successful.<br/>hutko ID: %s', 'hutko-payment' ), $subscription_payment->payment_id ) );
 			} else {
 				/* translators: 1) order status 2) payment ID */
-				throw new Exception( sprintf( __( 'Transaction ERROR: order %1$s<br/>hutko ID: %2$s', 'oplata-woocommerce-payment-gateway' ), $subscription_payment->order_status, $subscription_payment->payment_id ) );
+				throw new Exception( sprintf( esc_html__( 'Transaction ERROR: order %1$s<br/>hutko ID: %2$s', 'hutko-payment' ), esc_html( $subscription_payment->order_status ), esc_html( $subscription_payment->payment_id ) ) );
 			}
 		} catch ( Exception $e ) {
-			/* translators: %s: error message */
 			$renewal_order->update_status(
 				'failed',
 				sprintf(
-					__( 'Subscription payment failed. Reason: %s', 'oplata-woocommerce-payment-gateway' ),
+					/* translators: %s: error message */
+					__( 'Subscription payment failed. Reason: %s', 'hutko-payment' ),
 					$e->getMessage()
 				)
 			);

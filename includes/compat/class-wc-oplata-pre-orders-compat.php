@@ -56,25 +56,25 @@ class WC_Oplata_Pre_Orders_Compat {
 			);
 
 			if ( 'captured' === $capture->capture_status ) {
-				$order->add_order_note( __( 'hutko capture successful.', 'oplata-woocommerce-payment-gateway' ) );
+				$order->add_order_note( __( 'hutko capture successful.', 'hutko-payment' ) );
 				$order->payment_complete();
 			} else {
-				/* translators: 1) response status 2) error message 3) request ID */
 				throw new Exception(
 					sprintf(
-						__( 'Transaction: %1$s<br/>%2$s<br/>Request_id: %3$s', 'oplata-woocommerce-payment-gateway' ),
-						$capture->response_status,
-						$capture->error_message,
-						$capture->request_id
+						/* translators: 1) response status 2) error message 3) request ID */
+						esc_html__( 'Transaction: %1$s<br/>%2$s<br/>Request_id: %3$s', 'hutko-payment' ),
+						esc_html( $capture->response_status ),
+						esc_html( $capture->error_message ),
+						esc_html( $capture->request_id )
 					)
 				);
 			}
 		} catch ( Exception $e ) {
-			/* translators: %s: error message */
 			$order->update_status(
 				'failed',
 				sprintf(
-					__( 'Pre-order payment for order failed. Reason: %s', 'oplata-woocommerce-payment-gateway' ),
+					/* translators: %s: error message */
+					__( 'Pre-order payment for order failed. Reason: %s', 'hutko-payment' ),
 					$e->getMessage()
 				)
 			);
@@ -102,7 +102,7 @@ class WC_Oplata_Pre_Orders_Compat {
 	 * @return void
 	 */
 	public function getPreOrdersNotice() {
-		$message = __( 'Note: transactions by using Pre-Orders must be finished in 7 days term or it will be auto-captured.', 'oplata-woocommerce-payment-gateway' );
+		$message = __( 'Note: transactions by using Pre-Orders must be finished in 7 days term or it will be auto-captured.', 'hutko-payment' );
 		echo '<div class="notice notice-info is-dismissible"><p>' . esc_html( $message ) . '</p></div>';
 	}
 }

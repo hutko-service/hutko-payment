@@ -6,16 +6,12 @@
  * Author: hutko
  * Author URI: https://hutko.org
  * Requires at least: 5.8
- * Tested up to: 6.4
  * Requires PHP: 7.4
  * WC requires at least: 5.6
  * WC tested up to: 9.6
- * Version: 3.7.3
- * Text Domain: oplata-woocommerce-payment-gateway
+ * Version: 3.7.4
+ * Text Domain: hutko-payment
  * Domain Path: /languages
- * Tested up to: 5.8
- * WC tested up to: 5.6
- * WC requires at least: 3.0
  *
  * License: GPLv2 or later
  * License URI: http://www.gnu.org/licenses/gpl-2.0.html
@@ -35,7 +31,7 @@ if ( ! in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins',
 
 define( 'WC_OPLATA_DIR', dirname( __FILE__ ) );
 define( 'WC_OPLATA_BASE_FILE', __FILE__ );
-define( 'WC_OPLATA_VERSION', '3.7.3' );
+define( 'WC_OPLATA_VERSION', '3.7.4' );
 define( 'WC_OPLATA_MIN_PHP_VER', '5.6.0' );
 define( 'WC_OPLATA_MIN_WC_VER', '3.0' );
 
@@ -86,7 +82,7 @@ if ( ! class_exists( 'WC_Oplata' ) ) {
 			require_once dirname( __FILE__ ) . '/includes/compat/class-wc-oplata-subscriptions-compat.php';
 
 			add_filter( 'woocommerce_payment_gateways', array( $this, 'add_gateways' ) );
-			load_plugin_textdomain( 'oplata-woocommerce-payment-gateway', false, basename( WC_OPLATA_DIR ) . '/languages/' );
+			load_plugin_textdomain( 'hutko-payment', false, basename( WC_OPLATA_DIR ) . '/languages/' );
 
 			add_action( 'before_woocommerce_init', array( $this, 'declare_cartcheckout_blocks_compatibility' ) );
 			add_action( 'woocommerce_blocks_loaded', array( $this, 'register_order_approval_payment_method_type' ) );
@@ -149,7 +145,7 @@ if ( ! class_exists( 'WC_Oplata' ) ) {
 				sprintf(
 					'<a href="%1$s">%2$s</a>',
 					admin_url( 'admin.php?page=wc-settings&tab=checkout&section=hutko' ),
-					__( 'Settings', 'oplata-woocommerce-payment-gateway' )
+					__( 'Settings', 'hutko-payment' )
 				),
 			);
 
@@ -213,7 +209,7 @@ if ( ! class_exists( 'WC_Oplata' ) ) {
 		 */
 		public function woocommerce_oplata_wc_not_supported_notice() {
 			/* translators: 1) required WC version 2) current WC version */
-			$message = sprintf( __( 'Payment Gateway hutko requires WooCommerce %1$s or greater to be installed and active. WooCommerce %2$s is no longer supported.', 'oplata-woocommerce-payment-gateway' ), WC_OPLATA_MIN_WC_VER, WC_VERSION );
+			$message = sprintf( __( 'Payment Gateway hutko requires WooCommerce %1$s or greater to be installed and active. WooCommerce %2$s is no longer supported.', 'hutko-payment' ), WC_OPLATA_MIN_WC_VER, WC_VERSION );
 			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html( $message ) . '</p></div>';
 		}
 
@@ -224,7 +220,7 @@ if ( ! class_exists( 'WC_Oplata' ) ) {
 		 */
 		public function woocommerce_oplata_php_not_supported_notice() {
 			/* translators: 1) required PHP version 2) current PHP version */
-			$message = sprintf( __( 'The minimum PHP version required for hutko Payment Gateway is %1$s. You are running %2$s.', 'oplata-woocommerce-payment-gateway' ), WC_OPLATA_MIN_PHP_VER, phpversion() );
+			$message = sprintf( __( 'The minimum PHP version required for hutko Payment Gateway is %1$s. You are running %2$s.', 'hutko-payment' ), WC_OPLATA_MIN_PHP_VER, phpversion() );
 			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html( $message ) . '</p></div>';
 		}
 

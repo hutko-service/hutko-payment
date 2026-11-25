@@ -73,7 +73,7 @@ final class Oplata_Gateway_Blocks extends AbstractPaymentMethodType {
 		);
 
 		if ( function_exists( 'wp_set_script_translations' ) ) {
-			wp_set_script_translations( 'oplata-blocks-integration' );
+			wp_set_script_translations( 'oplata-blocks-integration', 'hutko-payment' );
 		}
 
 		return array( 'oplata-blocks-integration' );

@@ -42,7 +42,7 @@ class WC_Gateway_Oplata_Card extends WC_Oplata_Payment_Gateway {
 		$this->icon               = plugins_url( 'assets/img/oplata_logo_cards.svg', WC_OPLATA_BASE_FILE );
 		$this->has_fields         = false;
 		$this->method_title       = 'hutko';
-		$this->method_description = __( 'Card payments, Apple/Google Pay', 'oplata-woocommerce-payment-gateway' );
+		$this->method_description = __( 'Card payments, Apple/Google Pay', 'hutko-payment' );
 
 		$this->supports = array(
 			'products',
@@ -101,91 +101,91 @@ class WC_Gateway_Oplata_Card extends WC_Oplata_Payment_Gateway {
 	public function init_form_fields() {
 		$this->form_fields = array(
 			'enabled'                => array(
-				'title'       => __( 'Enable/Disable', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Enable/Disable', 'hutko-payment' ),
 				'type'        => 'checkbox',
-				'label'       => __( 'Enable hutko Gateway', 'oplata-woocommerce-payment-gateway' ),
+				'label'       => __( 'Enable hutko Gateway', 'hutko-payment' ),
 				'default'     => 'no',
-				'description' => __( 'Show in the Payment List as a payment option', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'Show in the Payment List as a payment option', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'test_mode'              => array(
-				'title'       => __( 'Test mode', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Test mode', 'hutko-payment' ),
 				'type'        => 'checkbox',
-				'label'       => __( 'Enable Test Mode', 'oplata-woocommerce-payment-gateway' ),
+				'label'       => __( 'Enable Test Mode', 'hutko-payment' ),
 				'default'     => 'no',
-				'description' => __( 'Place the payment gateway in test mode using test Merchant ID', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'Place the payment gateway in test mode using test Merchant ID', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'title'                  => array(
-				'title'       => __( 'Title', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Title', 'hutko-payment' ),
 				'type'        => 'text',
-				'description' => __( 'This controls the title which the user sees during checkout', 'oplata-woocommerce-payment-gateway' ),
-				'default'     => __( 'hutko Cards, Apple/Google Pay', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'This controls the title which the user sees during checkout', 'hutko-payment' ),
+				'default'     => __( 'hutko Cards, Apple/Google Pay', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'description'            => array(
-				'title'       => __( 'Description:', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Description:', 'hutko-payment' ),
 				'type'        => 'textarea',
-				'default'     => __( 'Pay securely by Credit/Debit Card or by Apple/Google Pay with hutko.', 'oplata-woocommerce-payment-gateway' ),
-				'description' => __( 'This controls the description which the user sees during checkout', 'oplata-woocommerce-payment-gateway' ),
+				'default'     => __( 'Pay securely by Credit/Debit Card or by Apple/Google Pay with hutko.', 'hutko-payment' ),
+				'description' => __( 'This controls the description which the user sees during checkout', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'merchant_id'            => array(
-				'title'       => __( 'Merchant ID', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Merchant ID', 'hutko-payment' ),
 				'type'        => 'text',
-				'description' => __( 'Given to Merchant by hutko', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'Given to Merchant by hutko', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'secret_key'             => array(
-				'title'       => __( 'Secret Key', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Secret Key', 'hutko-payment' ),
 				'type'        => 'text',
-				'description' => __( 'Given to Merchant by hutko', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'Given to Merchant by hutko', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'integration_type'       => array(
-				'title'       => __( 'Payment integration type', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Payment integration type', 'hutko-payment' ),
 				'type'        => 'select',
 				'options'     => $this->getIntegrationTypes(),
-				'description' => __( 'How the payment form will be displayed', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'How the payment form will be displayed', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'redirect_page_id'       => array(
-				'title'       => __( 'Return Page', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Return Page', 'hutko-payment' ),
 				'type'        => 'select',
-				'options'     => $this->oplata_get_pages( __( 'Default order page', 'oplata-woocommerce-payment-gateway' ) ),
-				'description' => __( 'URL of success page', 'oplata-woocommerce-payment-gateway' ),
+				'options'     => $this->oplata_get_pages( __( 'Default order page', 'hutko-payment' ) ),
+				'description' => __( 'URL of success page', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'completed_order_status' => array(
-				'title'       => __( 'Payment completed order status', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Payment completed order status', 'hutko-payment' ),
 				'type'        => 'select',
 				'options'     => $this->getPaymentOrderStatuses(),
 				'default'     => 'none',
-				'description' => __( 'The completed order status after successful payment', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'The completed order status after successful payment', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'expired_order_status'   => array(
-				'title'       => __( 'Payment expired order status', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Payment expired order status', 'hutko-payment' ),
 				'type'        => 'select',
 				'options'     => $this->getPaymentOrderStatuses(),
 				'default'     => 'none',
-				'description' => __( 'Order status when payment was expired', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'Order status when payment was expired', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'declined_order_status'  => array(
-				'title'       => __( 'Payment declined order status', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Payment declined order status', 'hutko-payment' ),
 				'type'        => 'select',
 				'options'     => $this->getPaymentOrderStatuses(),
 				'default'     => 'none',
-				'description' => __( 'Order status when payment was declined', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'Order status when payment was declined', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 			'recurrent_payment'      => array(
-				'title'       => __( 'Recurrent payment', 'oplata-woocommerce-payment-gateway' ),
+				'title'       => __( 'Recurrent payment', 'hutko-payment' ),
 				'type'        => 'checkbox',
-				'label'       => __( 'Enable Recurrent Payment', 'oplata-woocommerce-payment-gateway' ),
+				'label'       => __( 'Enable Recurrent Payment', 'hutko-payment' ),
 				'default'     => 'no',
-				'description' => __( 'Request card token for future charges', 'oplata-woocommerce-payment-gateway' ),
+				'description' => __( 'Request card token for future charges', 'hutko-payment' ),
 				'desc_tip'    => true,
 			),
 		);
@@ -238,20 +238,20 @@ class WC_Gateway_Oplata_Card extends WC_Oplata_Payment_Gateway {
 
 				case 'processing':
 					/* translators: %1$s: reverse status */
-					$order->add_order_note( sprintf( __( 'Refund hutko status: %1$s', 'oplata-woocommerce-payment-gateway' ), $reverse->reverse_status ) );
+					$order->add_order_note( sprintf( __( 'Refund hutko status: %1$s', 'hutko-payment' ), $reverse->reverse_status ) );
 					return true;
 
 				case 'declined':
 					/* translators: %1$s: reverse status */
-					$note_text = sprintf( __( 'Refund hutko status: %1$s', 'oplata-woocommerce-payment-gateway' ), $reverse->reverse_status );
+					$note_text = sprintf( __( 'Refund hutko status: %1$s', 'hutko-payment' ), $reverse->reverse_status );
 					$order->add_order_note( $note_text );
-					throw new Exception( $note_text );
+					throw new Exception( esc_html( $note_text ) );
 
 				default:
 					/* translators: %1$s: reverse status */
-					$note_text = sprintf( __( 'Refund hutko status: %1$s', 'oplata-woocommerce-payment-gateway' ), 'Unknown' );
+					$note_text = sprintf( __( 'Refund hutko status: %1$s', 'hutko-payment' ), 'Unknown' );
 					$order->add_order_note( $note_text );
-					throw new Exception( $note_text );
+					throw new Exception( esc_html( $note_text ) );
 			}
 		} catch ( Exception $e ) {
 			return new WP_Error( 'error', $e->getMessage() );

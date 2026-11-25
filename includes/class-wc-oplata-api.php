@@ -158,23 +158,23 @@ class WC_Oplata_API {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			throw new Exception( $response->get_error_message() );
+			throw new Exception( esc_html( $response->get_error_message() ) );
 		}
 
 		$response_code = wp_remote_retrieve_response_code( $response );
 		if ( 200 !== $response_code ) {
 			/* translators: %s: HTTP response code */
-			throw new Exception( sprintf( __( 'hutko API Return code is %s. Please try again later.', 'oplata-woocommerce-payment-gateway' ), $response_code ) );
+			throw new Exception( sprintf( esc_html__( 'hutko API Return code is %s. Please try again later.', 'hutko-payment' ), esc_html( $response_code ) ) );
 		}
 
 		$result = json_decode( $response['body'] );
 
 		if ( empty( $result->response ) && empty( $result->response->response_status ) ) {
-			throw new Exception( __( 'Unknown hutko API answer.', 'oplata-woocommerce-payment-gateway' ) );
+			throw new Exception( esc_html__( 'Unknown hutko API answer.', 'hutko-payment' ) );
 		}
 
 		if ( 'success' !== $result->response->response_status ) {
-			throw new Exception( $result->response->error_message );
+			throw new Exception( esc_html( $result->response->error_message ) );
 		}
 
 		return $result->response;
@@ -214,19 +214,19 @@ class WC_Oplata_API {
 	 */
 	public static function validateRequest( $request_body ) {
 		if ( empty( $request_body ) || ! is_array( $request_body ) ) {
-			throw new Exception( __( 'Empty request body.', 'oplata-woocommerce-payment-gateway' ) );
+			throw new Exception( esc_html__( 'Empty request body.', 'hutko-payment' ) );
 		}
 
 		if ( ! isset( $request_body['merchant_id'] ) || ! is_scalar( $request_body['merchant_id'] ) || ! is_numeric( $request_body['merchant_id'] ) ) {
-			throw new Exception( __( 'Merchant data is incorrect.', 'oplata-woocommerce-payment-gateway' ) );
+			throw new Exception( esc_html__( 'Merchant data is incorrect.', 'hutko-payment' ) );
 		}
 
 		if ( (int) self::$merchantID !== (int) $request_body['merchant_id'] ) {
-			throw new Exception( __( 'Merchant data is incorrect.', 'oplata-woocommerce-payment-gateway' ) );
+			throw new Exception( esc_html__( 'Merchant data is incorrect.', 'hutko-payment' ) );
 		}
 
 		if ( ! isset( $request_body['signature'] ) || ! is_scalar( $request_body['signature'] ) ) {
-			throw new Exception( __( 'Signature is not valid', 'oplata-woocommerce-payment-gateway' ) );
+			throw new Exception( esc_html__( 'Signature is not valid', 'hutko-payment' ) );
 		}
 
 		$request_signature = (string) $request_body['signature'];
@@ -234,7 +234,7 @@ class WC_Oplata_API {
 
 		$expected_signature = self::getSignature( $request_body, self::$secretKey );
 		if ( ! hash_equals( $expected_signature, $request_signature ) ) {
-			throw new Exception( __( 'Signature is not valid', 'oplata-woocommerce-payment-gateway' ) );
+			throw new Exception( esc_html__( 'Signature is not valid', 'hutko-payment' ) );
 		}
 	}
 }
